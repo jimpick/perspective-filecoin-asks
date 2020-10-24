@@ -26,13 +26,19 @@ const worker = perspective.shared_worker()
 const getTable = async (): Promise<Table> => {
   const annotationsUrl =
     'https://raw.githubusercontent.com/jimpick/workshop-client-testnet/spacerace/src/annotations-spacerace-slingshot-medium.json'
-  const resp2 = await fetch(annotationsUrl)
-  const annotations = await resp2.json()
-  const resp = await fetch(
-    'https://api.storage.codefi.network/asks?limit=1000&offset=0'
-  )
-  const json = await resp.json()
-  const data = json.map(
+  const annotationsResp = await fetch(annotationsUrl)
+  const annotations = await annotationsResp.json()
+
+  const retrievalsUrl =
+  'https://raw.githubusercontent.com/jimpick/filecoin-wiki-test/master/wiki-small-blocks-combined-128/retrievals/retrieval-success-miners.json'
+  const retrievalsResp = await fetch(retrievalsUrl)
+  const retrievals = new Set(await retrievalsResp.json())
+
+  const asksUrl = 'https://api.storage.codefi.network/asks?limit=1000&offset=0'
+  const asksResp = await fetch(asksUrl)
+  const asks = await asksResp.json()
+
+  const data = asks.map(
     ({
       miner: { address: minerAddress, score },
       price: {
@@ -56,6 +62,7 @@ const getTable = async (): Promise<Table> => {
         score,
         annotationState,
         annotationExtra,
+        retrieved: retrievals.has(minerAddress),
         minPieceSize,
         maxPieceSize
       }
