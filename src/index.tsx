@@ -9,7 +9,7 @@
 
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
-import { useEffect, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import perspective, { Table } from '@finos/perspective'
 import '@finos/perspective-viewer'
 import '@finos/perspective-viewer-datagrid'
@@ -84,10 +84,12 @@ const config: PerspectiveViewerOptions = {
   sort: [
     ['priceRaw', 'asc'],
     ['minerNum', 'asc']
-  ]
+  ],
+  selectable: true
 }
 
 const App = (): React.ReactElement => {
+  const [selectedMiner, setSelectedMiner] = useState<string | undefined>()
   const viewer = useRef<HTMLPerspectiveViewerElement>(null)
 
   useEffect(() => {
@@ -95,15 +97,43 @@ const App = (): React.ReactElement => {
       if (viewer.current) {
         viewer.current.load(table)
         viewer.current.restore(config)
+        viewer.current.addEventListener('perspective-select', function () {
+          const selected = document.querySelectorAll('.psp-row-selected')
+          if (selected && selected[1]) {
+            setSelectedMiner(selected[1].textContent)
+          }
+        })
       }
     })
   }, [])
 
+  let selected
+  if (!selectedMiner) {
+    selected = 'No miner selected.'
+  } else {
+    selected = (
+      <div style={{display: 'flex'}}>
+        Selected Miner: {selectedMiner}
+        <a
+          href={`https://spacegap.github.io/#/miners/${selectedMiner}`}
+          target='_blank'
+          style={{marginLeft: '0.5rem'}}
+        >
+          Spacegap
+        </a>
+      </div>
+    )
+  }
   // You can also the use the stringified config values as attributes
   return (
-    <perspective-viewer
-      ref={viewer} /*row-pivots='["State"]'*/
-    ></perspective-viewer>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '95vh' }}>
+      {selected}
+      <div style={{ position: 'relative', flex: '1' }}>
+        <perspective-viewer
+          ref={viewer} /*row-pivots='["State"]'*/
+        ></perspective-viewer>
+      </div>
+    </div>
   )
 }
 window.addEventListener('load', () => {

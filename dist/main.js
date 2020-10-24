@@ -93744,24 +93744,33 @@ __webpack_require__.r(__webpack_exports__);
 
 var worker = _finos_perspective__WEBPACK_IMPORTED_MODULE_3___default.a.shared_worker();
 var getTable = function () { return Object(tslib__WEBPACK_IMPORTED_MODULE_0__["__awaiter"])(void 0, void 0, void 0, function () {
-    var annotationsUrl, resp2, annotations, resp, json, data;
-    return Object(tslib__WEBPACK_IMPORTED_MODULE_0__["__generator"])(this, function (_a) {
-        switch (_a.label) {
+    var annotationsUrl, annotationsResp, annotations, retrievalsUrl, retrievalsResp, retrievals, _a, asksUrl, asksResp, asks, data;
+    return Object(tslib__WEBPACK_IMPORTED_MODULE_0__["__generator"])(this, function (_b) {
+        switch (_b.label) {
             case 0:
                 annotationsUrl = 'https://raw.githubusercontent.com/jimpick/workshop-client-testnet/spacerace/src/annotations-spacerace-slingshot-medium.json';
                 return [4 /*yield*/, fetch(annotationsUrl)];
             case 1:
-                resp2 = _a.sent();
-                return [4 /*yield*/, resp2.json()];
+                annotationsResp = _b.sent();
+                return [4 /*yield*/, annotationsResp.json()];
             case 2:
-                annotations = _a.sent();
-                return [4 /*yield*/, fetch('https://api.storage.codefi.network/asks?limit=1000&offset=0')];
+                annotations = _b.sent();
+                retrievalsUrl = 'https://raw.githubusercontent.com/jimpick/filecoin-wiki-test/master/wiki-small-blocks-combined-128/retrievals/retrieval-success-miners.json';
+                return [4 /*yield*/, fetch(retrievalsUrl)];
             case 3:
-                resp = _a.sent();
-                return [4 /*yield*/, resp.json()];
+                retrievalsResp = _b.sent();
+                _a = Set.bind;
+                return [4 /*yield*/, retrievalsResp.json()];
             case 4:
-                json = _a.sent();
-                data = json.map(function (_a) {
+                retrievals = new (_a.apply(Set, [void 0, _b.sent()]))();
+                asksUrl = 'https://api.storage.codefi.network/asks?limit=1000&offset=0';
+                return [4 /*yield*/, fetch(asksUrl)];
+            case 5:
+                asksResp = _b.sent();
+                return [4 /*yield*/, asksResp.json()];
+            case 6:
+                asks = _b.sent();
+                data = asks.map(function (_a) {
                     var _b = _a.miner, minerAddress = _b.address, score = _b.score, _c = _a.price, priceRaw = _c.raw, priceValue = _c.value, priceUsd = _c.prices.usd, minPieceSize = _a.minPieceSize.raw, maxPieceSize = _a.maxPieceSize.raw;
                     var annotation = annotations[minerAddress];
                     var match = annotation && annotation.match(/^([^,]*), (.*)/);
@@ -93776,40 +93785,62 @@ var getTable = function () { return Object(tslib__WEBPACK_IMPORTED_MODULE_0__["_
                         score: score,
                         annotationState: annotationState,
                         annotationExtra: annotationExtra,
+                        stored: annotationState === 'active' ||
+                            annotationState === 'active-sealing' ||
+                            annotationState === 'sealing',
+                        retrieved: retrievals.has(minerAddress),
                         minPieceSize: minPieceSize,
                         maxPieceSize: maxPieceSize
                     };
                 });
-                return [2 /*return*/, worker.table(data)
-                    /*
-                    var data = [
-                      { x: 1, y: 'a', z: true },
-                      { x: 2, y: 'b', z: false },
-                      { x: 3, y: 'c', z: true },
-                      { x: 4, y: 'd', z: false }
-                    ]
-                  
-                    return worker.table(data)
-                    */
-                ];
+                return [2 /*return*/, worker.table(data)];
         }
     });
 }); };
 var config = {
-// 'row-pivots': ['State']
+    // 'row-pivots': ['State']
+    filters: [
+        ['retrieved', '==', 'true'],
+        ['stored', '==', 'true']
+    ],
+    sort: [
+        ['priceRaw', 'asc'],
+        ['minerNum', 'asc']
+    ],
+    selectable: true
 };
 var App = function () {
+    var _a = Object(tslib__WEBPACK_IMPORTED_MODULE_0__["__read"])(Object(react__WEBPACK_IMPORTED_MODULE_1__["useState"])(), 2), selectedMiner = _a[0], setSelectedMiner = _a[1];
     var viewer = Object(react__WEBPACK_IMPORTED_MODULE_1__["useRef"])(null);
     Object(react__WEBPACK_IMPORTED_MODULE_1__["useEffect"])(function () {
         getTable().then(function (table) {
             if (viewer.current) {
                 viewer.current.load(table);
                 viewer.current.restore(config);
+                viewer.current.addEventListener('perspective-select', function () {
+                    var selected = document.querySelectorAll('.psp-row-selected');
+                    if (selected && selected[1]) {
+                        setSelectedMiner(selected[1].textContent);
+                    }
+                });
             }
         });
     }, []);
+    var selected;
+    if (!selectedMiner) {
+        selected = 'No miner selected.';
+    }
+    else {
+        selected = (react__WEBPACK_IMPORTED_MODULE_1__["createElement"]("div", { style: { display: 'flex' } },
+            "Selected Miner: ",
+            selectedMiner,
+            react__WEBPACK_IMPORTED_MODULE_1__["createElement"]("a", { href: "https://spacegap.github.io/#/miners/" + selectedMiner, target: '_blank', style: { marginLeft: '0.5rem' } }, "Spacegap")));
+    }
     // You can also the use the stringified config values as attributes
-    return (react__WEBPACK_IMPORTED_MODULE_1__["createElement"]("perspective-viewer", { ref: viewer }));
+    return (react__WEBPACK_IMPORTED_MODULE_1__["createElement"]("div", { style: { display: 'flex', flexDirection: 'column', height: '95vh' } },
+        selected,
+        react__WEBPACK_IMPORTED_MODULE_1__["createElement"]("div", { style: { position: 'relative', flex: '1' } },
+            react__WEBPACK_IMPORTED_MODULE_1__["createElement"]("perspective-viewer", { ref: viewer }))));
 };
 window.addEventListener('load', function () {
     react_dom__WEBPACK_IMPORTED_MODULE_2__["render"](react__WEBPACK_IMPORTED_MODULE_1__["createElement"](App, null), document.getElementById('root'));
