@@ -30,7 +30,7 @@ const getTable = async (): Promise<Table> => {
   const annotations = await annotationsResp.json()
 
   const retrievalsUrl =
-  'https://raw.githubusercontent.com/jimpick/filecoin-wiki-test/master/wiki-small-blocks-combined-128/retrievals/retrieval-success-miners.json'
+    'https://raw.githubusercontent.com/jimpick/filecoin-wiki-test/master/wiki-small-blocks-combined-128/retrievals/retrieval-success-miners.json'
   const retrievalsResp = await fetch(retrievalsUrl)
   const retrievals = new Set(await retrievalsResp.json())
 
@@ -62,6 +62,10 @@ const getTable = async (): Promise<Table> => {
         score,
         annotationState,
         annotationExtra,
+        stored:
+          annotationState === 'active' ||
+          annotationState === 'active-sealing' ||
+          annotationState === 'sealing',
         retrieved: retrievals.has(minerAddress),
         minPieceSize,
         maxPieceSize
@@ -69,20 +73,18 @@ const getTable = async (): Promise<Table> => {
     }
   )
   return worker.table(data)
-  /*
-  var data = [
-    { x: 1, y: 'a', z: true },
-    { x: 2, y: 'b', z: false },
-    { x: 3, y: 'c', z: true },
-    { x: 4, y: 'd', z: false }
-  ]
-
-  return worker.table(data)
-  */
 }
 
 const config: PerspectiveViewerOptions = {
   // 'row-pivots': ['State']
+  filters: [
+    ['retrieved', '==', 'true'],
+    ['stored', '==', 'true']
+  ],
+  sort: [
+    ['priceRaw', 'asc'],
+    ['minerNum', 'asc']
+  ]
 }
 
 const App = (): React.ReactElement => {
