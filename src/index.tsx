@@ -112,14 +112,35 @@ const App = (): React.ReactElement => {
     selected = 'No miner selected.'
   } else {
     selected = (
-      <div style={{display: 'flex'}}>
+      <div style={{ display: 'flex' }}>
         Selected Miner: {selectedMiner}
         <a
           href={`https://spacegap.github.io/#/miners/${selectedMiner}`}
           target='_blank'
-          style={{marginLeft: '0.5rem'}}
+          style={{ marginLeft: '0.5rem' }}
         >
           Spacegap
+        </a>
+        <a
+          href={`https://filfox.info/en/address/${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Filfox
+        </a>
+        <a
+          href={`https://filscan.io/#/tipset/address-detail?address=${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Filscan
+        </a>
+        <a
+          href={`https://filscout.io/en/pc/miner?id=${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          FILscout
         </a>
       </div>
     )
