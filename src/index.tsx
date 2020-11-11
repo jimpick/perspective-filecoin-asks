@@ -40,7 +40,8 @@ const getTable = async (): Promise<Table> => {
 
   const data = asks.map(
     ({
-      miner: { address: minerAddress, score },
+      id: codefiAskId,
+      miner: { address: minerAddress, score: codefiScore },
       price: {
         raw: priceRaw,
         value: priceValue,
@@ -59,7 +60,7 @@ const getTable = async (): Promise<Table> => {
         priceRaw,
         priceValue,
         priceUsd,
-        score,
+        codefiScore,
         annotationState,
         annotationExtra,
         stored:
@@ -68,7 +69,8 @@ const getTable = async (): Promise<Table> => {
           annotationState === 'sealing',
         retrieved: retrievals.has(minerAddress),
         minPieceSize,
-        maxPieceSize
+        maxPieceSize,
+        codefiAskId
       }
     }
   )
@@ -76,6 +78,20 @@ const getTable = async (): Promise<Table> => {
 }
 
 const config: PerspectiveViewerOptions = {
+  columns: [
+    'minerNum',
+    'miner',
+    'priceRaw',
+    'priceValue',
+    'priceUsd',
+    'codefiScore',
+    'annotationState',
+    'annotationExtra',
+    'stored',
+    'retrieved',
+    'minPieceSize',
+    'maxPieceSize'
+  ],
   // 'row-pivots': ['State']
   filters: [
     ['retrieved', '==', 'true'],
@@ -90,29 +106,52 @@ const config: PerspectiveViewerOptions = {
 
 const App = (): React.ReactElement => {
   const [selectedMiner, setSelectedMiner] = useState<string | undefined>()
+  const [codefiAskId, setCodefiAskId] = useState<string | undefined>()
+  const [csv, setCsv] = useState<string | undefined>()
   const viewer = useRef<HTMLPerspectiveViewerElement>(null)
 
   useEffect(() => {
+    if (document.location.hash === "#csv") {
+      document.location.href = document.location.pathname
+    }
     getTable().then(table => {
       if (viewer.current) {
         viewer.current.load(table)
         viewer.current.restore(config)
-        viewer.current.addEventListener('perspective-select', function () {
+        viewer.current.addEventListener('perspective-select', async () => {
           const selected = document.querySelectorAll('.psp-row-selected')
           if (selected && selected[1]) {
-            setSelectedMiner(selected[1].textContent)
+            // FIXME: Doesn't work if rows are customized
+            const selectedMiner = selected[1].textContent
+            setSelectedMiner(selectedMiner)
+            const view = table.view({
+              columns: ['codefiAskId'],
+              filter: [['miner', '==', selectedMiner]]
+            })
+            const data = await view.to_json()
+            if (data && data[0]) {
+              setCodefiAskId(data[0]['codefiAskId'])
+            }
           }
         })
+        window.onhashchange = async function () {
+          const viewerEl = viewer.current as any
+          const csv = await viewerEl.view.to_csv()
+          setCsv(csv)
+        }
       }
     })
   }, [])
 
+  if (document.location.hash === "#csv") {
+    return <pre>{csv}</pre>
+  }
   let selected
   if (!selectedMiner) {
     selected = 'No miner selected.'
   } else {
     selected = (
-      <div style={{ display: 'flex' }}>
+      <div style={{ display: 'flex', fontSize: 'small' }}>
         Selected Miner: {selectedMiner}
         <a
           href={`https://spacegap.github.io/#/miners/${selectedMiner}`}
@@ -142,6 +181,48 @@ const App = (): React.ReactElement => {
         >
           FILscout
         </a>
+        <a
+          href={`https://filplorer.com/miner/${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Filplorer
+        </a>
+        <a
+          href={`https://1475ipfs.com/blockBrowserDetail?comName=minerDetail&minerAddress=${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          1475
+        </a>
+        <a
+          href={`https://filecoin.tools/${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          CID Checker
+        </a>
+        <a
+          href={`https://www.storage.codefi.network/details/${codefiAskId}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Codefi
+        </a>
+        <a
+          href='https://filstats.com/'
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          FilStats
+        </a>
+        <a
+          href='https://filstats.io/'
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Filstats.io
+        </a>
       </div>
     )
   }
@@ -149,6 +230,17 @@ const App = (): React.ReactElement => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '95vh' }}>
       {selected}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          margin: '3px',
+          fontSize: 'small'
+        }}
+      >
+        [<a href='#csv'>CSV</a>]
+      </div>
       <div style={{ position: 'relative', flex: '1' }}>
         <perspective-viewer
           ref={viewer} /*row-pivots='["State"]'*/
