@@ -108,10 +108,11 @@ const App = (): React.ReactElement => {
   const [selectedMiner, setSelectedMiner] = useState<string | undefined>()
   const [codefiAskId, setCodefiAskId] = useState<string | undefined>()
   const [csv, setCsv] = useState<string | undefined>()
+  const [json, setJson] = useState<string | undefined>()
   const viewer = useRef<HTMLPerspectiveViewerElement>(null)
 
   useEffect(() => {
-    if (document.location.hash === "#csv") {
+    if (document.location.hash !== "") {
       document.location.href = document.location.pathname
     }
     getTable().then(table => {
@@ -137,7 +138,9 @@ const App = (): React.ReactElement => {
         window.onhashchange = async function () {
           const viewerEl = viewer.current as any
           const csv = await viewerEl.view.to_csv()
+          const json = await viewerEl.view.to_json()
           setCsv(csv)
+          setJson(json)
         }
       }
     })
@@ -145,6 +148,9 @@ const App = (): React.ReactElement => {
 
   if (document.location.hash === "#csv") {
     return <pre>{csv}</pre>
+  }
+  if (document.location.hash === "#json") {
+    return <pre>{JSON.stringify(json, null, 2)}</pre>
   }
   let selected
   if (!selectedMiner) {
@@ -239,7 +245,8 @@ const App = (): React.ReactElement => {
           fontSize: 'small'
         }}
       >
-        [<a href='#csv'>CSV</a>]
+        [<a href='#csv'>CSV</a> {' | '}
+        <a href='#json'>JSON</a>]
       </div>
       <div style={{ position: 'relative', flex: '1' }}>
         <perspective-viewer
