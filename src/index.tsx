@@ -38,10 +38,32 @@ const getTable = async (): Promise<Table> => {
   const asksResp = await fetch(asksUrl)
   const asks = await asksResp.json()
 
-  const data = asks.map(
-    ({
+  const miners = new Set([
+    ...Object.keys(annotations),
+    ...retrievals,
+    ...asks.map(({ miner: { address } }) => address)
+  ])
+  const sortedMiners = [...miners].sort((a, b) => {
+    return Number(a.slice(1)) - Number(b.slice(1))
+  })
+
+  const askIndex = {}
+  for (const ask of asks) {
+    const {
+      miner: { address }
+    } = ask
+    askIndex[address] = ask
+  }
+  const data = sortedMiners.map(minerAddress => {
+    const ask = askIndex[minerAddress] || {
+      miner: {},
+      price: { prices: {} },
+      minPieceSize: {},
+      maxPieceSize: {}
+    }
+    const {
       id: codefiAskId,
-      miner: { address: minerAddress, score: codefiScore },
+      miner: { score: codefiScore },
       price: {
         raw: priceRaw,
         value: priceValue,
@@ -49,31 +71,30 @@ const getTable = async (): Promise<Table> => {
       },
       minPieceSize: { raw: minPieceSize },
       maxPieceSize: { raw: maxPieceSize }
-    }) => {
-      const annotation = annotations[minerAddress]
-      const match = annotation && annotation.match(/^([^,]*), (.*)/)
-      const annotationState = match ? match[1] : ''
-      const annotationExtra = match ? match[2] : ''
-      return {
-        minerNum: Number(minerAddress.slice(1)),
-        miner: minerAddress,
-        priceRaw,
-        priceValue,
-        priceUsd,
-        codefiScore,
-        annotationState,
-        annotationExtra,
-        stored:
-          annotationState === 'active' ||
-          annotationState === 'active-sealing' ||
-          annotationState === 'sealing',
-        retrieved: retrievals.has(minerAddress),
-        minPieceSize,
-        maxPieceSize,
-        codefiAskId
-      }
+    } = ask
+    const annotation = annotations[minerAddress]
+    const match = annotation && annotation.match(/^([^,]*), (.*)/)
+    const annotationState = match ? match[1] : ''
+    const annotationExtra = match ? match[2] : ''
+    return {
+      minerNum: Number(minerAddress.slice(1)),
+      miner: minerAddress,
+      priceRaw,
+      priceValue,
+      priceUsd,
+      codefiScore,
+      annotationState,
+      annotationExtra,
+      stored:
+        annotationState === 'active' ||
+        annotationState === 'active-sealing' ||
+        annotationState === 'sealing',
+      retrieved: retrievals.has(minerAddress),
+      minPieceSize,
+      maxPieceSize,
+      codefiAskId
     }
-  )
+  })
   return worker.table(data)
 }
 
@@ -95,7 +116,8 @@ const config: PerspectiveViewerOptions = {
   // 'row-pivots': ['State']
   filters: [
     ['retrieved', '==', 'true'],
-    ['stored', '==', 'true']
+    ['stored', '==', 'true'],
+    ['codefiAskId', 'is not null', '']
   ],
   sort: [
     ['priceRaw', 'asc'],
@@ -112,7 +134,7 @@ const App = (): React.ReactElement => {
   const viewer = useRef<HTMLPerspectiveViewerElement>(null)
 
   useEffect(() => {
-    if (document.location.hash !== "") {
+    if (document.location.hash !== '') {
       document.location.href = document.location.pathname
     }
     getTable().then(table => {
@@ -146,10 +168,10 @@ const App = (): React.ReactElement => {
     })
   }, [])
 
-  if (document.location.hash === "#csv") {
+  if (document.location.hash === '#csv') {
     return <pre>{csv}</pre>
   }
-  if (document.location.hash === "#json") {
+  if (document.location.hash === '#json') {
     return <pre>{JSON.stringify(json, null, 2)}</pre>
   }
   let selected
@@ -157,7 +179,14 @@ const App = (): React.ReactElement => {
     selected = 'No miner selected.'
   } else {
     selected = (
-      <div style={{ display: 'flex', fontSize: 'small' }}>
+      <div
+        style={{
+          display: 'flex',
+          fontSize: 'small',
+          marginTop: '0.8rem',
+          flexWrap: 'wrap'
+        }}
+      >
         Selected Miner: {selectedMiner}
         <a
           href={`https://spacegap.github.io/#/miners/${selectedMiner}`}
@@ -245,7 +274,11 @@ const App = (): React.ReactElement => {
           fontSize: 'small'
         }}
       >
-        [<a href='#csv'>CSV</a> {' | '}
+        [
+        <a href='https://github.com/jimpick/perspective-filecoin-asks'>
+          GitHub
+        </a>{' '}
+        | <a href='#csv'>CSV</a> {' | '}
         <a href='#json'>JSON</a>]
       </div>
       <div style={{ position: 'relative', flex: '1' }}>
