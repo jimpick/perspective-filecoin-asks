@@ -34,9 +34,14 @@ const getTable = async (): Promise<Table> => {
   const retrievalsResp = await fetch(retrievalsUrl)
   const retrievals = new Set(await retrievalsResp.json())
 
-  const asksUrl = 'https://api.storage.codefi.network/asks?limit=1000&offset=0'
-  const asksResp = await fetch(asksUrl)
-  const asks = await asksResp.json()
+  let asks = []
+  try {
+    const asksUrl = 'https://api.storage.codefi.network/asks?limit=1000&offset=0'
+    const asksResp = await fetch(asksUrl)
+    asks = await asksResp.json()
+  } catch (e) {
+    console.log('Error retrieving asks:', e)
+  }
 
   const miners = new Set([
     ...Object.keys(annotations),
@@ -117,7 +122,7 @@ const config: PerspectiveViewerOptions = {
   filters: [
     ['retrieved', '==', 'true'],
     ['stored', '==', 'true'],
-    ['codefiAskId', 'is not null', '']
+    // ['codefiAskId', 'is not null', '']
   ],
   sort: [
     ['priceRaw', 'asc'],
