@@ -1,7 +1,7 @@
 perspective-filecoin-asks
 =========================
 
-Demo: https://ipfs.io/ipfs/QmUy41AadMpoj7Si6EJsrEwxwa1EZ3SQEvn27nR187hjnC/
+Demo: https://ipfs.io/ipfs/QmWimpGA6ZnPxMi35gyk8RtA6dFo3tQSemspavZjG7s9Qa/
 
 Modified from: https://github.com/finos/perspective/tree/master/examples/react
 
