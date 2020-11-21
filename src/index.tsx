@@ -20,10 +20,15 @@ import {
   HTMLPerspectiveViewerElement,
   PerspectiveViewerOptions
 } from '@finos/perspective-viewer'
+// import { mainnet } from '@filecoin-shipyard/lotus-client-schema'
+// import { BrowserProvider } from '@filecoin-shipyard/lotus-client-provider-browser'
+// import { LotusRPC } from '@filecoin-shipyard/lotus-client-rpc'
+// import delay from 'delay'
+
 
 const worker = perspective.shared_worker()
 
-const getTable = async (): Promise<Table> => {
+const getData = async (): Promise<Object[]> => {
   const annotationsUrl =
     'https://raw.githubusercontent.com/jimpick/workshop-client-testnet/spacerace/src/annotations-spacerace-slingshot-medium.json'
   const annotationsResp = await fetch(annotationsUrl)
@@ -70,12 +75,12 @@ const getTable = async (): Promise<Table> => {
       id: codefiAskId,
       miner: { score: codefiScore },
       price: {
-        raw: priceRaw,
-        value: priceValue,
-        prices: { usd: priceUsd }
+        raw: codefiPriceRaw,
+        value: codefiPriceValue,
+        prices: { usd: codefiPriceUsd }
       },
-      minPieceSize: { raw: minPieceSize },
-      maxPieceSize: { raw: maxPieceSize }
+      minPieceSize: { raw: codefiMinPieceSize },
+      maxPieceSize: { raw: codefiMaxPieceSize }
     } = ask
     const annotation = annotations[minerAddress]
     const match = annotation && annotation.match(/^([^,]*), (.*)/)
@@ -84,9 +89,10 @@ const getTable = async (): Promise<Table> => {
     return {
       minerNum: Number(minerAddress.slice(1)),
       miner: minerAddress,
-      priceRaw,
-      priceValue,
-      priceUsd,
+      askStatus: '',
+      codefiPriceRaw,
+      codefiPriceValue,
+      codefiPriceUsd,
       codefiScore,
       annotationState,
       annotationExtra,
@@ -95,28 +101,30 @@ const getTable = async (): Promise<Table> => {
         annotationState === 'active-sealing' ||
         annotationState === 'sealing',
       retrieved: retrievals.has(minerAddress),
-      minPieceSize,
-      maxPieceSize,
+      codefiMinPieceSize,
+      codefiMaxPieceSize,
       codefiAskId
     }
   })
-  return worker.table(data)
+  return data
+  // return worker.table(data)
 }
 
 const config: PerspectiveViewerOptions = {
   columns: [
     'minerNum',
     'miner',
-    'priceRaw',
-    'priceValue',
-    'priceUsd',
+    'askStatus',
+    'codefiPriceRaw',
+    'codefiPriceValue',
+    'codefiPriceUsd',
     'codefiScore',
     'annotationState',
     'annotationExtra',
     'stored',
     'retrieved',
-    'minPieceSize',
-    'maxPieceSize'
+    'codefiMinPieceSize',
+    'codefiMaxPieceSize'
   ],
   // 'row-pivots': ['State']
   filters: [
@@ -125,13 +133,14 @@ const config: PerspectiveViewerOptions = {
     // ['codefiAskId', 'is not null', '']
   ],
   sort: [
-    ['priceRaw', 'asc'],
+    // ['priceRaw', 'asc'],
     ['minerNum', 'asc']
   ],
   selectable: true
 }
 
 const App = (): React.ReactElement => {
+  const [loading, setLoading] = useState<boolean>(true)
   const [selectedMiner, setSelectedMiner] = useState<string | undefined>()
   const [codefiAskId, setCodefiAskId] = useState<string | undefined>()
   const [csv, setCsv] = useState<string | undefined>()
@@ -142,7 +151,9 @@ const App = (): React.ReactElement => {
     if (document.location.hash !== '') {
       document.location.href = document.location.pathname
     }
-    getTable().then(table => {
+    async function run () {
+      const data = await getData()
+      const table = worker.table(data)
       if (viewer.current) {
         viewer.current.load(table)
         viewer.current.restore(config)
@@ -169,8 +180,10 @@ const App = (): React.ReactElement => {
           setCsv(csv)
           setJson(json)
         }
+        setLoading(false)
       }
-    })
+    }
+    run()
   }, [])
 
   if (document.location.hash === '#csv') {
@@ -180,7 +193,9 @@ const App = (): React.ReactElement => {
     return <pre>{JSON.stringify(json, null, 2)}</pre>
   }
   let selected
-  if (!selectedMiner) {
+  if (loading) {
+    selected = 'Loading...'
+  } else if (!selectedMiner) {
     selected = 'No miner selected.'
   } else {
     selected = (
