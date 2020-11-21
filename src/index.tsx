@@ -31,8 +31,8 @@ const worker = perspective.shared_worker()
 interface MinerRecord {
   minerNum: number
   miner: string
-  askStatus?: string
-  codefiPriceRaw: string
+  askTime?: Date
+  codefiPriceRaw: float
   codefiPriceValue: number
   codefiPriceUsd: number
   codefiScore: number
@@ -40,9 +40,26 @@ interface MinerRecord {
   annotationExtra: string
   stored: boolean
   retrieved: boolean
-  codefiMinPieceSize: number
-  codefiMaxPieceSize: number
+  codefiMinPieceSize: float
+  codefiMaxPieceSize: float
   codefiAskId: string
+}
+
+const schema = {
+  minerNum: "integer",
+  miner: "string",
+  askTime: "datetime",
+  codefiPriceRaw: "float",
+  codefiPriceValue: "float",
+  codefiPriceUsd: "float",
+  codefiScore: "float",
+  annotationState: "string",
+  annotationExtra: "string",
+  stored: "boolean",
+  retrieved: "boolean",
+  codefiMinPieceSize: "float",
+  codefiMaxPieceSize: "float",
+  codefiAskId: "string"
 }
 
 const getData = async (): Promise<MinerRecord[]> => {
@@ -107,7 +124,7 @@ const getData = async (): Promise<MinerRecord[]> => {
     return {
       minerNum: Number(minerAddress.slice(1)),
       miner: minerAddress,
-      askStatus: null,
+      askTime: null,
       codefiPriceRaw,
       codefiPriceValue,
       codefiPriceUsd,
@@ -131,7 +148,7 @@ const config: PerspectiveViewerOptions = {
   columns: [
     'minerNum',
     'miner',
-    'askStatus',
+    'askTime',
     'codefiPriceRaw',
     'codefiPriceValue',
     'codefiPriceUsd',
@@ -170,7 +187,7 @@ const App = (): React.ReactElement => {
     }
     async function run () {
       const data = await getData()
-      const table = worker.table(data, { index: 'miner' })
+      const table = worker.table(schema, { index: 'miner' })
       viewer.current.load(table)
       viewer.current.restore(config)
       viewer.current.addEventListener('perspective-select', async () => {
@@ -196,11 +213,19 @@ const App = (): React.ReactElement => {
         setCsv(csv)
         setJson(json)
       }
+      for (const row of data) {
+        const columnData = {}
+        for (const key in row) {
+          columnData[key] = [row[key]]
+        }
+        table.update(columnData)
+      }
       setLoading(false)
+      // let baseTime = new Date()
       while (true) {
         const view = table.view({
-          columns: ['miner', 'askStatus'],
-          filter: [['askStatus', 'is null', '']],
+          columns: ['miner', 'askTime'],
+          filter: [['askTime', 'is null', '']],
           sort: [
             ['stored', 'desc'],
             ['retrieved', 'desc'],
@@ -214,11 +239,10 @@ const App = (): React.ReactElement => {
           for (let i in data) {
             const record = data[i]
             if (record.miner === miner) {
-              // record.askStatus = String(Date.now())
               console.log('Jim updating', miner)
               table.update({
                 miner: [miner],
-                askStatus: [String(Date.now())]
+                askTime: [new Date()]
               } as any)
             }
           }
