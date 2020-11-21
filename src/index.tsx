@@ -20,11 +20,11 @@ import {
   HTMLPerspectiveViewerElement,
   PerspectiveViewerOptions
 } from '@finos/perspective-viewer'
+import { subMinutes } from 'date-fns'
+import { mainnet } from '@filecoin-shipyard/lotus-client-schema'
+import { BrowserProvider } from '@filecoin-shipyard/lotus-client-provider-browser'
+import { LotusRPC } from '@filecoin-shipyard/lotus-client-rpc'
 import delay from 'delay'
-// import { mainnet } from '@filecoin-shipyard/lotus-client-schema'
-// import { BrowserProvider } from '@filecoin-shipyard/lotus-client-provider-browser'
-// import { LotusRPC } from '@filecoin-shipyard/lotus-client-rpc'
-// import delay from 'delay'
 
 const worker = perspective.shared_worker()
 
@@ -32,34 +32,42 @@ interface MinerRecord {
   minerNum: number
   miner: string
   askTime?: Date
-  codefiPriceRaw: float
-  codefiPriceValue: number
-  codefiPriceUsd: number
-  codefiScore: number
-  annotationState: string
-  annotationExtra: string
-  stored: boolean
-  retrieved: boolean
-  codefiMinPieceSize: float
-  codefiMaxPieceSize: float
-  codefiAskId: string
+  price?: number
+  verifiedPrice?: number
+  codefiPriceRaw?: number
+  codefiPriceValue?: number
+  codefiPriceUsd?: number
+  codefiScore?: number
+  annotationState?: string
+  annotationExtra?: string
+  stored?: boolean
+  retrieved?: boolean
+  minPieceSize?: number
+  maxPieceSize?: number
+  codefiMinPieceSize?: number
+  codefiMaxPieceSize?: number
+  codefiAskId?: string
 }
 
 const schema = {
-  minerNum: "integer",
-  miner: "string",
-  askTime: "datetime",
-  codefiPriceRaw: "float",
-  codefiPriceValue: "float",
-  codefiPriceUsd: "float",
-  codefiScore: "float",
-  annotationState: "string",
-  annotationExtra: "string",
-  stored: "boolean",
-  retrieved: "boolean",
-  codefiMinPieceSize: "float",
-  codefiMaxPieceSize: "float",
-  codefiAskId: "string"
+  minerNum: 'integer',
+  miner: 'string',
+  askTime: 'datetime',
+  price: 'float',
+  verifiedPrice: 'float',
+  codefiPriceRaw: 'float',
+  codefiPriceValue: 'float',
+  codefiPriceUsd: 'float',
+  codefiScore: 'float',
+  annotationState: 'string',
+  annotationExtra: 'string',
+  stored: 'boolean',
+  retrieved: 'boolean',
+  minPieceSize: 'float',
+  maxPieceSize: 'float',
+  codefiMinPieceSize: 'float',
+  codefiMaxPieceSize: 'float',
+  codefiAskId: 'string'
 }
 
 const getData = async (): Promise<MinerRecord[]> => {
@@ -125,6 +133,8 @@ const getData = async (): Promise<MinerRecord[]> => {
       minerNum: Number(minerAddress.slice(1)),
       miner: minerAddress,
       askTime: null,
+      price: codefiPriceRaw || 999999999999999,
+      verifiedPrice: null,
       codefiPriceRaw,
       codefiPriceValue,
       codefiPriceUsd,
@@ -136,6 +146,8 @@ const getData = async (): Promise<MinerRecord[]> => {
         annotationState === 'active-sealing' ||
         annotationState === 'sealing',
       retrieved: retrievals.has(minerAddress),
+      minPieceSize: codefiMinPieceSize,
+      maxPieceSize: codefiMaxPieceSize,
       codefiMinPieceSize,
       codefiMaxPieceSize,
       codefiAskId
@@ -149,16 +161,16 @@ const config: PerspectiveViewerOptions = {
     'minerNum',
     'miner',
     'askTime',
-    'codefiPriceRaw',
-    'codefiPriceValue',
-    'codefiPriceUsd',
+    'price',
+    'verifiedPrice',
+    // 'codefiPriceRaw',
     'codefiScore',
     'annotationState',
     'annotationExtra',
     'stored',
     'retrieved',
-    'codefiMinPieceSize',
-    'codefiMaxPieceSize'
+    'minPieceSize',
+    'maxPieceSize'
   ],
   // 'row-pivots': ['State']
   filters: [
@@ -167,7 +179,7 @@ const config: PerspectiveViewerOptions = {
     // ['codefiAskId', 'is not null', '']
   ],
   sort: [
-    // ['priceRaw', 'asc'],
+    ['price', 'asc'],
     ['minerNum', 'asc']
   ],
   selectable: true
@@ -222,8 +234,12 @@ const App = (): React.ReactElement => {
       }
       setLoading(false)
       // let baseTime = new Date()
+      const endpointUrl = 'wss://lotus.jimpick.com/spacerace_api/0/node/rpc/v0'
+      const provider = new BrowserProvider(endpointUrl)
+      const client = new LotusRPC(provider, { schema: mainnet.fullNode })
+
       while (true) {
-        const view = table.view({
+        const viewNull = table.view({
           columns: ['miner', 'askTime'],
           filter: [['askTime', 'is null', '']],
           sort: [
@@ -232,22 +248,60 @@ const App = (): React.ReactElement => {
             ['minerNum', 'asc']
           ]
         })
-        const dataAskCandidates = (await view.to_json()) as MinerRecord[]
-        console.log('Jim dataAskCandidates', dataAskCandidates.length)
+        const dataAskNullCandidates = (await viewNull.to_json()) as MinerRecord[]
+        console.log('Jim dataAskNullCandidates', dataAskNullCandidates.length)
+        const viewStale = table.view({
+          columns: ['miner', 'askTime'],
+          filter: [['askTime', '<', subMinutes(new Date(), 1).toISOString()]],
+          sort: [
+            ['stored', 'desc'],
+            ['retrieved', 'desc'],
+            ['minerNum', 'asc']
+          ]
+        })
+        const dataAskStaleCandidates = (await viewStale.to_json()) as MinerRecord[]
+        console.log('Jim dataAskStaleCandidates', dataAskStaleCandidates.length)
+        const dataAskCandidates = [
+          ...dataAskNullCandidates,
+          ...dataAskStaleCandidates
+        ]
         if (dataAskCandidates.length > 0) {
           const { miner } = dataAskCandidates[0]
           for (let i in data) {
             const record = data[i]
             if (record.miner === miner) {
               console.log('Jim updating', miner)
+              let price: number = 999999999999999
+              let verifiedPrice: number = null
+              let minPieceSize: number = null
+              let maxPieceSize: number = null
+              try {
+                const { PeerId: peerId } = await client.stateMinerInfo(
+                  miner,
+                  []
+                )
+                console.log(`Miner ${miner}: ${peerId}`)
+                const ask = await client.clientQueryAsk(peerId, miner)
+                console.log('Ask:', miner, ask)
+                price = Number(ask.Price)
+                verifiedPrice = Number(ask.VerifiedPrice)
+                minPieceSize = Number(ask.MinPieceSize)
+                maxPieceSize = Number(ask.MaxPieceSize)
+              } catch (e) {
+                console.error('Error during ask', miner, e)
+              }
               table.update({
                 miner: [miner],
-                askTime: [new Date()]
+                askTime: [new Date()],
+                price: [price],
+                verifiedPrice: [verifiedPrice],
+                minPieceSize: [minPieceSize],
+                maxPieceSize: [maxPieceSize]
               } as any)
             }
           }
         }
-        await delay(1000)
+        await delay(250)
       }
     }
     run()
