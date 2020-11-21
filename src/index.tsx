@@ -10,7 +10,7 @@
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import { useEffect, useState, useRef } from 'react'
-import perspective, { Table } from '@finos/perspective'
+import perspective from '@finos/perspective'
 import '@finos/perspective-viewer'
 import '@finos/perspective-viewer-datagrid'
 import '@finos/perspective-viewer-d3fc'
@@ -20,15 +20,32 @@ import {
   HTMLPerspectiveViewerElement,
   PerspectiveViewerOptions
 } from '@finos/perspective-viewer'
+import delay from 'delay'
 // import { mainnet } from '@filecoin-shipyard/lotus-client-schema'
 // import { BrowserProvider } from '@filecoin-shipyard/lotus-client-provider-browser'
 // import { LotusRPC } from '@filecoin-shipyard/lotus-client-rpc'
 // import delay from 'delay'
 
-
 const worker = perspective.shared_worker()
 
-const getData = async (): Promise<Object[]> => {
+interface MinerRecord {
+  minerNum: number
+  miner: string
+  askStatus?: string
+  codefiPriceRaw: string
+  codefiPriceValue: number
+  codefiPriceUsd: number
+  codefiScore: number
+  annotationState: string
+  annotationExtra: string
+  stored: boolean
+  retrieved: boolean
+  codefiMinPieceSize: number
+  codefiMaxPieceSize: number
+  codefiAskId: string
+}
+
+const getData = async (): Promise<MinerRecord[]> => {
   const annotationsUrl =
     'https://raw.githubusercontent.com/jimpick/workshop-client-testnet/spacerace/src/annotations-spacerace-slingshot-medium.json'
   const annotationsResp = await fetch(annotationsUrl)
@@ -41,7 +58,8 @@ const getData = async (): Promise<Object[]> => {
 
   let asks = []
   try {
-    const asksUrl = 'https://api.storage.codefi.network/asks?limit=1000&offset=0'
+    const asksUrl =
+      'https://api.storage.codefi.network/asks?limit=1000&offset=0'
     const asksResp = await fetch(asksUrl)
     asks = await asksResp.json()
   } catch (e) {
@@ -89,7 +107,7 @@ const getData = async (): Promise<Object[]> => {
     return {
       minerNum: Number(minerAddress.slice(1)),
       miner: minerAddress,
-      askStatus: '',
+      askStatus: null,
       codefiPriceRaw,
       codefiPriceValue,
       codefiPriceUsd,
@@ -107,7 +125,6 @@ const getData = async (): Promise<Object[]> => {
     }
   })
   return data
-  // return worker.table(data)
 }
 
 const config: PerspectiveViewerOptions = {
@@ -129,7 +146,7 @@ const config: PerspectiveViewerOptions = {
   // 'row-pivots': ['State']
   filters: [
     ['retrieved', '==', 'true'],
-    ['stored', '==', 'true'],
+    ['stored', '==', 'true']
     // ['codefiAskId', 'is not null', '']
   ],
   sort: [
@@ -153,34 +170,60 @@ const App = (): React.ReactElement => {
     }
     async function run () {
       const data = await getData()
-      const table = worker.table(data)
-      if (viewer.current) {
-        viewer.current.load(table)
-        viewer.current.restore(config)
-        viewer.current.addEventListener('perspective-select', async () => {
-          const selected = document.querySelectorAll('.psp-row-selected')
-          if (selected && selected[1]) {
-            // FIXME: Doesn't work if rows are customized
-            const selectedMiner = selected[1].textContent
-            setSelectedMiner(selectedMiner)
-            const view = table.view({
-              columns: ['codefiAskId'],
-              filter: [['miner', '==', selectedMiner]]
-            })
-            const data = await view.to_json()
-            if (data && data[0]) {
-              setCodefiAskId(data[0]['codefiAskId'])
+      const table = worker.table(data, { index: 'miner' })
+      viewer.current.load(table)
+      viewer.current.restore(config)
+      viewer.current.addEventListener('perspective-select', async () => {
+        const selected = document.querySelectorAll('.psp-row-selected')
+        if (selected && selected[1]) {
+          // FIXME: Doesn't work if rows are customized
+          const selectedMiner = selected[1].textContent
+          setSelectedMiner(selectedMiner)
+          const view = table.view({
+            columns: ['codefiAskId'],
+            filter: [['miner', '==', selectedMiner]]
+          })
+          const data = await view.to_json()
+          if (data && data[0]) {
+            setCodefiAskId(data[0]['codefiAskId'])
+          }
+        }
+      })
+      window.onhashchange = async function () {
+        const viewerEl = viewer.current as any
+        const csv = await viewerEl.view.to_csv()
+        const json = await viewerEl.view.to_json()
+        setCsv(csv)
+        setJson(json)
+      }
+      setLoading(false)
+      while (true) {
+        const view = table.view({
+          columns: ['miner', 'askStatus'],
+          filter: [['askStatus', 'is null', '']],
+          sort: [
+            ['stored', 'desc'],
+            ['retrieved', 'desc'],
+            ['minerNum', 'asc']
+          ]
+        })
+        const dataAskCandidates = (await view.to_json()) as MinerRecord[]
+        console.log('Jim dataAskCandidates', dataAskCandidates.length)
+        if (dataAskCandidates.length > 0) {
+          const { miner } = dataAskCandidates[0]
+          for (let i in data) {
+            const record = data[i]
+            if (record.miner === miner) {
+              // record.askStatus = String(Date.now())
+              console.log('Jim updating', miner)
+              table.update({
+                miner: [miner],
+                askStatus: [String(Date.now())]
+              } as any)
             }
           }
-        })
-        window.onhashchange = async function () {
-          const viewerEl = viewer.current as any
-          const csv = await viewerEl.view.to_csv()
-          const json = await viewerEl.view.to_json()
-          setCsv(csv)
-          setJson(json)
         }
-        setLoading(false)
+        await delay(1000)
       }
     }
     run()
