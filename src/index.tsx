@@ -23,8 +23,13 @@ import {
 import { subMinutes } from 'date-fns'
 import { mainnet } from '@filecoin-shipyard/lotus-client-schema'
 import { BrowserProvider } from '@filecoin-shipyard/lotus-client-provider-browser'
-import { LotusRPC } from '@filecoin-shipyard/lotus-client-rpc'
+import {
+  LotusRPC,
+  MinerInfo,
+  StorageAsk
+} from '@filecoin-shipyard/lotus-client-rpc'
 import delay from 'delay'
+import PQueue from 'p-queue'
 
 const worker = perspective.shared_worker()
 
@@ -238,7 +243,16 @@ const App = (): React.ReactElement => {
       const provider = new BrowserProvider(endpointUrl)
       const client = new LotusRPC(provider, { schema: mainnet.fullNode })
 
+      const queue = new PQueue({ concurrency: 5 })
+      const inflight = new Set()
+
       while (true) {
+        if (queue.size > 0) {
+          // Busy, sleep
+          console.log('Jobs waiting, sleeping', queue.size)
+          await delay(1000)
+          continue
+        }
         const viewNull = table.view({
           columns: ['miner', 'askTime'],
           filter: [['askTime', 'is null', '']],
@@ -249,10 +263,10 @@ const App = (): React.ReactElement => {
           ]
         })
         const dataAskNullCandidates = (await viewNull.to_json()) as MinerRecord[]
-        console.log('Jim dataAskNullCandidates', dataAskNullCandidates.length)
+        console.log('dataAskNullCandidates', dataAskNullCandidates.length)
         const viewStale = table.view({
           columns: ['miner', 'askTime'],
-          filter: [['askTime', '<', subMinutes(new Date(), 1).toISOString()]],
+          filter: [['askTime', '<', subMinutes(new Date(), 5).toISOString()]],
           sort: [
             ['stored', 'desc'],
             ['retrieved', 'desc'],
@@ -260,48 +274,70 @@ const App = (): React.ReactElement => {
           ]
         })
         const dataAskStaleCandidates = (await viewStale.to_json()) as MinerRecord[]
-        console.log('Jim dataAskStaleCandidates', dataAskStaleCandidates.length)
+        console.log('dataAskStaleCandidates', dataAskStaleCandidates.length)
         const dataAskCandidates = [
           ...dataAskNullCandidates,
           ...dataAskStaleCandidates
         ]
         if (dataAskCandidates.length > 0) {
-          const { miner } = dataAskCandidates[0]
-          for (let i in data) {
-            const record = data[i]
-            if (record.miner === miner) {
-              console.log('Jim updating', miner)
-              let price: number = 999999999999999
-              let verifiedPrice: number = null
-              let minPieceSize: number = null
-              let maxPieceSize: number = null
-              try {
-                const { PeerId: peerId } = await client.stateMinerInfo(
-                  miner,
-                  []
-                )
-                console.log(`Miner ${miner}: ${peerId}`)
-                const ask = await client.clientQueryAsk(peerId, miner)
-                console.log('Ask:', miner, ask)
-                price = Number(ask.Price)
-                verifiedPrice = Number(ask.VerifiedPrice)
-                minPieceSize = Number(ask.MinPieceSize)
-                maxPieceSize = Number(ask.MaxPieceSize)
-              } catch (e) {
-                console.error('Error during ask', miner, e)
+          dataAskCandidates.length = 5 // Limit number of new tasks
+          queue.add(async () => {
+            for (const { miner } of dataAskCandidates) {
+              if (!inflight.has(miner)) {
+                inflight.add(miner)
+                console.log('inflight', inflight)
+                for (let i in data) {
+                  const record = data[i]
+                  if (record.miner === miner) {
+                    console.log('updating', miner)
+                    let price: number = 999999999999999
+                    let verifiedPrice: number = null
+                    let minPieceSize: number = null
+                    let maxPieceSize: number = null
+                    let state = { done: false }
+                    try {
+                      const timeoutFunc = async () => {
+                        state.done = false
+                        await delay(10 * 1000)
+                        if (!state.done) {
+                          throw new Error('timeout')
+                        }
+                      }
+                      const { PeerId: peerId } = (await Promise.race([
+                        client.stateMinerInfo(miner, []),
+                        timeoutFunc()
+                      ])) as MinerInfo
+                      console.log(`Miner ${miner}: ${peerId}`)
+                      const ask = (await Promise.race([
+                        client.clientQueryAsk(peerId, miner),
+                        timeoutFunc()
+                      ])) as StorageAsk
+                      console.log('Ask:', miner, ask)
+                      price = Number(ask.Price)
+                      verifiedPrice = Number(ask.VerifiedPrice)
+                      minPieceSize = Number(ask.MinPieceSize)
+                      maxPieceSize = Number(ask.MaxPieceSize)
+                      state.done = true
+                    } catch (e) {
+                      console.error('Error during ask', miner, e)
+                    }
+                    table.update({
+                      miner: [miner],
+                      askTime: [new Date()],
+                      price: [price],
+                      verifiedPrice: [verifiedPrice],
+                      minPieceSize: [minPieceSize],
+                      maxPieceSize: [maxPieceSize]
+                    } as any)
+                    inflight.delete(miner)
+                  }
+                }
               }
-              table.update({
-                miner: [miner],
-                askTime: [new Date()],
-                price: [price],
-                verifiedPrice: [verifiedPrice],
-                minPieceSize: [minPieceSize],
-                maxPieceSize: [maxPieceSize]
-              } as any)
+              continue
             }
-          }
+          })
         }
-        await delay(250)
+        await delay(500)
       }
     }
     run()

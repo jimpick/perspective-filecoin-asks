@@ -19,6 +19,7 @@
         "@finos/perspective-viewer-datagrid": "^0.5.6",
         "date-fns": "^2.16.1",
         "delay": "^4.4.0",
+        "p-queue": "^6.6.2",
         "react": "16.8.6",
         "react-dom": "16.8.6"
     },
