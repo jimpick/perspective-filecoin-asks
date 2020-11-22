@@ -30,6 +30,9 @@ import {
 } from '@filecoin-shipyard/lotus-client-rpc'
 import delay from 'delay'
 import PQueue from 'p-queue'
+import { set as setIdb, get as getIdb } from 'idb-keyval'
+
+const cacheMinutes = 30
 
 const worker = perspective.shared_worker()
 
@@ -58,6 +61,24 @@ interface MinerRecord {
   activeSectors?: number
   faultySectors?: number
   liveSectors?: number
+}
+
+interface AskCache {
+  askTime: Date
+  price: number
+  verifiedPrice: number
+  minPieceSize: number
+  maxPieceSize: number
+}
+
+interface PowerCache {
+  cacheTime: Date
+  qualityAdjPower: number
+  rawBytePower: number
+  balance: number
+  activeSectors: number
+  faultySectors: number
+  liveSectors: number
 }
 
 const schema = {
@@ -177,6 +198,7 @@ const config: PerspectiveViewerOptions = {
   columns: [
     'minerNum',
     'miner',
+    'annotationExtra',
     'askTime',
     'price',
     'verifiedPrice',
@@ -187,7 +209,6 @@ const config: PerspectiveViewerOptions = {
     // 'codefiPriceRaw',
     'codefiScore',
     'annotationState',
-    'annotationExtra',
     'stored',
     'retrieved',
     'minPieceSize',
@@ -259,6 +280,37 @@ const App = (): React.ReactElement => {
       const provider = new BrowserProvider(endpointUrl)
       const client = new LotusRPC(provider, { schema: mainnet.fullNode })
 
+      const oldestCacheTime = subMinutes(new Date(), cacheMinutes)
+      for (const { miner } of data) {
+        const ask: AskCache = await getIdb(`ask/${miner}`)
+        if (ask) {
+          if (ask.askTime > oldestCacheTime) {
+            table.update({
+              miner: [miner],
+              askTime: [ask.askTime],
+              price: [ask.price],
+              verifiedPrice: [ask.verifiedPrice],
+              minPieceSize: [ask.minPieceSize],
+              maxPieceSize: [ask.maxPieceSize]
+            } as any)
+          }
+        }
+        const power: PowerCache = await getIdb(`power/${miner}`)
+        if (power) {
+          if (power.cacheTime > oldestCacheTime) {
+            table.update({
+              miner: [miner],
+              qualityAdjPower: [power.qualityAdjPower],
+              rawBytePower: [power.rawBytePower],
+              balance: [power.balance],
+              activeSectors: [power.activeSectors],
+              faultySectors: [power.faultySectors],
+              liveSectors: [power.liveSectors]
+            } as any)
+          }
+        }
+      }
+
       const powerQueue = new PQueue({ concurrency: 5 })
       for (const { miner } of data) {
         powerQueue.add(async () => {
@@ -287,6 +339,16 @@ const App = (): React.ReactElement => {
             faultySectors: [faultySectors],
             liveSectors: [liveSectors]
           } as any)
+          const powerCache: PowerCache = {
+            cacheTime: new Date(),
+            qualityAdjPower: Number(qualityAdjPower),
+            rawBytePower: Number(rawBytePower),
+            balance: roundedBalance,
+            activeSectors,
+            faultySectors,
+            liveSectors
+          }
+          setIdb(`power/${miner}`, powerCache)
         })
       }
 
@@ -313,7 +375,9 @@ const App = (): React.ReactElement => {
         // console.log('dataAskNullCandidates', dataAskNullCandidates.length)
         const viewStale = table.view({
           columns: ['miner', 'askTime'],
-          filter: [['askTime', '<', subMinutes(new Date(), 30).toISOString()]],
+          filter: [
+            ['askTime', '<', subMinutes(new Date(), cacheMinutes).toISOString()]
+          ],
           sort: [
             ['stored', 'desc'],
             ['retrieved', 'desc'],
@@ -371,14 +435,23 @@ const App = (): React.ReactElement => {
                     } catch (e) {
                       // console.error('Error during ask', miner, e)
                     }
+                    const askTime = new Date()
                     table.update({
                       miner: [miner],
-                      askTime: [new Date()],
+                      askTime: [askTime],
                       price: [price],
                       verifiedPrice: [verifiedPrice],
                       minPieceSize: [minPieceSize],
                       maxPieceSize: [maxPieceSize]
                     } as any)
+                    const askCache: AskCache = {
+                      askTime,
+                      price,
+                      verifiedPrice,
+                      minPieceSize,
+                      maxPieceSize
+                    }
+                    setIdb(`ask/${miner}`, askCache)
                     inflight.delete(miner)
                   }
                 }
