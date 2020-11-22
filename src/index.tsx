@@ -55,6 +55,9 @@ interface MinerRecord {
   qualityAdjPower?: number
   rawBytePower?: number
   balance?: number
+  activeSectors?: number
+  faultySectors?: number
+  liveSectors?: number
 }
 
 const schema = {
@@ -78,7 +81,10 @@ const schema = {
   codefiAskId: 'string',
   qualityAdjPower: 'float',
   rawBytePower: 'float',
-  balance: 'float'
+  balance: 'float',
+  activeSectors: 'integer',
+  faultySectors: 'integer',
+  liveSectors: 'integer'
 }
 
 const getData = async (): Promise<MinerRecord[]> => {
@@ -176,6 +182,8 @@ const config: PerspectiveViewerOptions = {
     'verifiedPrice',
     'qualityAdjPower',
     'balance',
+    'faultySectors',
+    'liveSectors',
     // 'codefiPriceRaw',
     'codefiScore',
     'annotationState',
@@ -263,13 +271,21 @@ const App = (): React.ReactElement => {
           } = minerPower
           const actor = await client.stateGetActor(miner, [])
           const { Balance: balance } = actor
-          const roundedBalance = Math.round(Number(balance) / Math.pow(10,18))
-          console.log(`Power/balance ${miner}`, qualityAdjPower, rawBytePower, balance)
+          const roundedBalance = Math.round(Number(balance) / Math.pow(10, 18))
+          const sectorCount = await client.stateMinerSectorCount(miner, [])
+          const {
+            Active: activeSectors,
+            Faulty: faultySectors,
+            Live: liveSectors
+          } = sectorCount
           table.update({
             miner: [miner],
             qualityAdjPower: [qualityAdjPower],
             rawBytePower: [rawBytePower],
-            balance: [roundedBalance]
+            balance: [roundedBalance],
+            activeSectors: [activeSectors],
+            faultySectors: [faultySectors],
+            liveSectors: [liveSectors]
           } as any)
         })
       }
