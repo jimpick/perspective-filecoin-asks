@@ -52,6 +52,9 @@ interface MinerRecord {
   codefiMinPieceSize?: number
   codefiMaxPieceSize?: number
   codefiAskId?: string
+  qualityAdjPower?: number
+  rawBytePower?: number
+  balance?: number
 }
 
 const schema = {
@@ -72,7 +75,10 @@ const schema = {
   maxPieceSize: 'float',
   codefiMinPieceSize: 'float',
   codefiMaxPieceSize: 'float',
-  codefiAskId: 'string'
+  codefiAskId: 'string',
+  qualityAdjPower: 'float',
+  rawBytePower: 'float',
+  balance: 'float'
 }
 
 const getData = async (): Promise<MinerRecord[]> => {
@@ -168,6 +174,8 @@ const config: PerspectiveViewerOptions = {
     'askTime',
     'price',
     'verifiedPrice',
+    'qualityAdjPower',
+    'balance',
     // 'codefiPriceRaw',
     'codefiScore',
     'annotationState',
@@ -180,8 +188,8 @@ const config: PerspectiveViewerOptions = {
   // 'row-pivots': ['State']
   filters: [
     ['retrieved', '==', 'true'],
-    ['stored', '==', 'true']
-    // ['codefiAskId', 'is not null', '']
+    ['stored', '==', 'true'],
+    ['qualityAdjPower', '!=', 0.0 as any] // eslint-disable-line
   ],
   sort: [
     ['price', 'asc'],
@@ -243,13 +251,36 @@ const App = (): React.ReactElement => {
       const provider = new BrowserProvider(endpointUrl)
       const client = new LotusRPC(provider, { schema: mainnet.fullNode })
 
-      const queue = new PQueue({ concurrency: 5 })
+      const powerQueue = new PQueue({ concurrency: 5 })
+      for (const { miner } of data) {
+        powerQueue.add(async () => {
+          const minerPower = await client.stateMinerPower(miner, [])
+          const {
+            MinerPower: {
+              QualityAdjPower: qualityAdjPower,
+              RawBytePower: rawBytePower
+            }
+          } = minerPower
+          const actor = await client.stateGetActor(miner, [])
+          const { Balance: balance } = actor
+          const roundedBalance = Math.round(Number(balance) / Math.pow(10,18))
+          console.log(`Power/balance ${miner}`, qualityAdjPower, rawBytePower, balance)
+          table.update({
+            miner: [miner],
+            qualityAdjPower: [qualityAdjPower],
+            rawBytePower: [rawBytePower],
+            balance: [roundedBalance]
+          } as any)
+        })
+      }
+
+      const askQueue = new PQueue({ concurrency: 5 })
       const inflight = new Set()
 
       while (true) {
-        if (queue.size > 0) {
+        if (askQueue.size > 0) {
           // Busy, sleep
-          // console.log('Jobs waiting, sleeping', queue.size)
+          // console.log('Jobs waiting, sleeping', askQueue.size)
           await delay(1000)
           continue
         }
@@ -275,15 +306,17 @@ const App = (): React.ReactElement => {
         })
         const dataAskStaleCandidates = (await viewStale.to_json()) as MinerRecord[]
         // console.log('dataAskStaleCandidates', dataAskStaleCandidates.length)
-        console.log(`Candidates: ${dataAskNullCandidates.length} null, ` +
-        `${dataAskStaleCandidates.length} stale`)
+        console.log(
+          `Candidates: ${dataAskNullCandidates.length} null, ` +
+            `${dataAskStaleCandidates.length} stale`
+        )
         const dataAskCandidates = [
           ...dataAskNullCandidates,
           ...dataAskStaleCandidates
         ]
         if (dataAskCandidates.length > 0) {
           dataAskCandidates.length = 5 // Limit number of new tasks
-          queue.add(async () => {
+          askQueue.add(async () => {
             for (const { miner } of dataAskCandidates) {
               if (!inflight.has(miner)) {
                 inflight.add(miner)
@@ -309,7 +342,6 @@ const App = (): React.ReactElement => {
                         client.stateMinerInfo(miner, []),
                         timeoutFunc()
                       ])) as MinerInfo
-                      // console.log(`Miner ${miner}: ${peerId}`)
                       const ask = (await Promise.race([
                         client.clientQueryAsk(peerId, miner),
                         timeoutFunc()
