@@ -188,7 +188,8 @@ const getData = async (): Promise<MinerRecord[]> => {
       maxPieceSize: codefiMaxPieceSize,
       codefiMinPieceSize,
       codefiMaxPieceSize,
-      codefiAskId
+      codefiAskId,
+      qualityAdjPower: 0.001
     }
   })
   return data
@@ -218,7 +219,7 @@ const config: PerspectiveViewerOptions = {
   filters: [
     ['retrieved', '==', 'true'],
     ['stored', '==', 'true'],
-    ['qualityAdjPower', '!=', 0.0 as any] // eslint-disable-line
+    ['qualityAdjPower', '>', 0 as any]
   ],
   sort: [
     ['price', 'asc'],
