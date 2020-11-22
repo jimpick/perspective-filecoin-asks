@@ -249,7 +249,7 @@ const App = (): React.ReactElement => {
       while (true) {
         if (queue.size > 0) {
           // Busy, sleep
-          console.log('Jobs waiting, sleeping', queue.size)
+          // console.log('Jobs waiting, sleeping', queue.size)
           await delay(1000)
           continue
         }
@@ -263,10 +263,10 @@ const App = (): React.ReactElement => {
           ]
         })
         const dataAskNullCandidates = (await viewNull.to_json()) as MinerRecord[]
-        console.log('dataAskNullCandidates', dataAskNullCandidates.length)
+        // console.log('dataAskNullCandidates', dataAskNullCandidates.length)
         const viewStale = table.view({
           columns: ['miner', 'askTime'],
-          filter: [['askTime', '<', subMinutes(new Date(), 5).toISOString()]],
+          filter: [['askTime', '<', subMinutes(new Date(), 30).toISOString()]],
           sort: [
             ['stored', 'desc'],
             ['retrieved', 'desc'],
@@ -274,7 +274,9 @@ const App = (): React.ReactElement => {
           ]
         })
         const dataAskStaleCandidates = (await viewStale.to_json()) as MinerRecord[]
-        console.log('dataAskStaleCandidates', dataAskStaleCandidates.length)
+        // console.log('dataAskStaleCandidates', dataAskStaleCandidates.length)
+        console.log(`Candidates: ${dataAskNullCandidates.length} null, ` +
+        `${dataAskStaleCandidates.length} stale`)
         const dataAskCandidates = [
           ...dataAskNullCandidates,
           ...dataAskStaleCandidates
@@ -285,11 +287,11 @@ const App = (): React.ReactElement => {
             for (const { miner } of dataAskCandidates) {
               if (!inflight.has(miner)) {
                 inflight.add(miner)
-                console.log('inflight', inflight)
+                // console.log('inflight', inflight)
                 for (let i in data) {
                   const record = data[i]
                   if (record.miner === miner) {
-                    console.log('updating', miner)
+                    // console.log('updating', miner)
                     let price: number = 999999999999999
                     let verifiedPrice: number = null
                     let minPieceSize: number = null
@@ -307,19 +309,19 @@ const App = (): React.ReactElement => {
                         client.stateMinerInfo(miner, []),
                         timeoutFunc()
                       ])) as MinerInfo
-                      console.log(`Miner ${miner}: ${peerId}`)
+                      // console.log(`Miner ${miner}: ${peerId}`)
                       const ask = (await Promise.race([
                         client.clientQueryAsk(peerId, miner),
                         timeoutFunc()
                       ])) as StorageAsk
-                      console.log('Ask:', miner, ask)
+                      // console.log('Ask:', miner, ask)
                       price = Number(ask.Price)
                       verifiedPrice = Number(ask.VerifiedPrice)
                       minPieceSize = Number(ask.MinPieceSize)
                       maxPieceSize = Number(ask.MaxPieceSize)
                       state.done = true
                     } catch (e) {
-                      console.error('Error during ask', miner, e)
+                      // console.error('Error during ask', miner, e)
                     }
                     table.update({
                       miner: [miner],
