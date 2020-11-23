@@ -172,7 +172,7 @@ const getData = async (): Promise<MinerRecord[]> => {
       miner: minerAddress,
       askTime: null,
       price: codefiPriceRaw || 999999999999999,
-      verifiedPrice: null,
+      verifiedPrice: 999999999999999,
       codefiPriceRaw,
       codefiPriceValue,
       codefiPriceUsd,
@@ -407,7 +407,7 @@ const App = (): React.ReactElement => {
                   if (record.miner === miner) {
                     // console.log('updating', miner)
                     let price: number = 999999999999999
-                    let verifiedPrice: number = null
+                    let verifiedPrice: number = 999999999999999
                     let minPieceSize: number = null
                     let maxPieceSize: number = null
                     let state = { done: false }
