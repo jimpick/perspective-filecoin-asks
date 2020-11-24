@@ -396,7 +396,10 @@ const App = (): React.ReactElement => {
           ...dataAskStaleCandidates
         ]
         if (dataAskCandidates.length > 0) {
-          dataAskCandidates.length = 5 // Limit number of new tasks
+          const maxCandidates = 5 // Limit number of new tasks
+          if (dataAskCandidates.length > maxCandidates) {
+            dataAskCandidates.length = maxCandidates
+          }
           askQueue.add(async () => {
             for (const { miner } of dataAskCandidates) {
               if (!inflight.has(miner)) {
