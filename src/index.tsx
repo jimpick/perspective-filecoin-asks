@@ -277,10 +277,13 @@ const App = (): React.ReactElement => {
       }
       setLoading(false)
       // let baseTime = new Date()
-      // const endpointUrl = 'wss://lotus.jimpick.com/spacerace_api/0/node/rpc/v0'
       const endpointUrl = 'https://api.dev.node.glif.io/rpc/v0'
       const provider = new BrowserProvider(endpointUrl)
       const client = new LotusRPC(provider, { schema: mainnet.fullNode })
+
+      const fallbackEndpointUrl = 'wss://lotus.jimpick.com/spacerace_api/0/node/rpc/v0'
+      const fallbackProvider = new BrowserProvider(fallbackEndpointUrl)
+      const fallbackClient = new LotusRPC(fallbackProvider, { schema: mainnet.fullNode })
 
       const oldestCacheTime = subMinutes(new Date(), cacheMinutes)
       for (const { miner } of data) {
@@ -316,17 +319,50 @@ const App = (): React.ReactElement => {
       const powerQueue = new PQueue({ concurrency: 5 })
       for (const { miner } of data) {
         powerQueue.add(async () => {
-          const minerPower = await client.stateMinerPower(miner, [])
+          let minerPower
+          try {
+            minerPower = await client.stateMinerPower(miner, [])
+          } catch (e) {
+            // FIXME: Lotus JS Client should catch 404 errors better
+            if (e.name === 'SyntaxError') {
+              console.info('Using fallback stateMinerPower')
+              minerPower = await fallbackClient.stateMinerPower(miner, [])
+            } else {
+              console.error('stateMinerPower error', e)
+            }
+          }
           const {
             MinerPower: {
               QualityAdjPower: qualityAdjPower,
               RawBytePower: rawBytePower
             }
           } = minerPower
-          const actor = await client.stateGetActor(miner, [])
+          let actor
+          try {
+            actor = await client.stateGetActor(miner, [])
+          } catch (e) {
+            // FIXME: Lotus JS Client should catch 404 errors better
+            if (e.name === 'SyntaxError') {
+              console.info('Using fallback stateGetActor')
+              actor = await fallbackClient.stateGetActor(miner, [])
+            } else {
+              console.error('stateGetActor error', e)
+            }
+          }
           const { Balance: balance } = actor
           const roundedBalance = Math.round(Number(balance) / Math.pow(10, 18))
-          const sectorCount = await client.stateMinerSectorCount(miner, [])
+          let sectorCount
+          try {
+            sectorCount = await client.stateMinerSectorCount(miner, [])
+          } catch (e) {
+            // FIXME: Lotus JS Client should catch 404 errors better
+            if (e.name === 'SyntaxError') {
+              console.info('Using fallback stateMinerSectorCount')
+              sectorCount = await fallbackClient.stateMinerSectorCount(miner, [])
+            } else {
+              console.error('stateMinerSectorCount error', e)
+            }
+          }
           const {
             Active: activeSectors,
             Faulty: faultySectors,
@@ -423,14 +459,43 @@ const App = (): React.ReactElement => {
                           throw new Error('timeout')
                         }
                       }
-                      const { PeerId: peerId } = (await Promise.race([
-                        client.stateMinerInfo(miner, []),
-                        timeoutFunc()
-                      ])) as MinerInfo
-                      const ask = (await Promise.race([
-                        client.clientQueryAsk(peerId, miner),
-                        timeoutFunc()
-                      ])) as StorageAsk
+                      let minerInfo
+                      try {
+                        minerInfo = (await Promise.race([
+                          client.stateMinerInfo(miner, []),
+                          timeoutFunc()
+                        ])) as MinerInfo
+                      } catch (e) {
+                        // FIXME: Lotus JS Client should catch 404 errors better
+                        if (e.name === 'SyntaxError') {
+                          console.info('Using fallback minerInfo')
+                          minerInfo = (await Promise.race([
+                            fallbackClient.stateMinerInfo(miner, []),
+                            timeoutFunc()
+                          ])) as MinerInfo
+                        } else {
+                          console.error('minerInfo error', e)
+                        }
+                      }
+                      const { PeerId: peerId } = minerInfo
+                      let ask
+                      try {
+                        ask = (await Promise.race([
+                          client.clientQueryAsk(peerId, miner),
+                          timeoutFunc()
+                        ])) as StorageAsk
+                      } catch (e) {
+                        // FIXME: Lotus JS Client should catch 404 errors better
+                        if (e.name === 'SyntaxError') {
+                          console.info('Using fallback clientQueryAsk')
+                          ask = (await Promise.race([
+                            fallbackClient.clientQueryAsk(peerId, miner),
+                            timeoutFunc()
+                          ])) as StorageAsk
+                        } else {
+                          console.error('clientQueryAsk error', e)
+                        }
+                      }
                       // console.log('Ask:', miner, ask)
                       price = Number(ask.Price)
                       verifiedPrice = Number(ask.VerifiedPrice)
@@ -438,7 +503,7 @@ const App = (): React.ReactElement => {
                       maxPieceSize = Number(ask.MaxPieceSize)
                       state.done = true
                     } catch (e) {
-                      // console.error('Error during ask', miner, e)
+                      console.error('Error during ask', miner, e)
                     }
                     const askTime = new Date()
                     table.update({
