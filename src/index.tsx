@@ -277,7 +277,7 @@ const App = (): React.ReactElement => {
       }
       setLoading(false)
       // let baseTime = new Date()
-      const endpointUrl = 'https://api.dev.node.glif.io/rpc/v0'
+      const endpointUrl = 'https://api.node.glif.io/rpc/v0'
       const provider = new BrowserProvider(endpointUrl)
       const client = new LotusRPC(provider, { schema: mainnet.fullNode })
 
