@@ -110,7 +110,7 @@ const schema = {
 
 const getData = async (): Promise<MinerRecord[]> => {
   const annotationsUrl =
-    'https://raw.githubusercontent.com/jimpick/workshop-client-testnet/spacerace/src/annotations-spacerace-slingshot-medium.json'
+    'https://raw.githubusercontent.com/jimpick/workshop-client-mainnet/main/src/annotations-mainnet-128mib-unverified.json'
   const annotationsResp = await fetch(annotationsUrl)
   const annotations = await annotationsResp.json()
 
@@ -634,6 +634,7 @@ const App = (): React.ReactElement => {
   // You can also the use the stringified config values as attributes
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '95vh' }}>
+      <span style={{ fontWeight: 'bold' }}>128MiB, Unverified</span> {' '}
       {selected}
       <div
         style={{
