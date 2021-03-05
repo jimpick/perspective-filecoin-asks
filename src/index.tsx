@@ -46,6 +46,13 @@ interface MinerRecord {
   codefiPriceValue?: number
   codefiPriceUsd?: number
   codefiScore?: number
+  filrepScore?: number
+  filrepScoreUptime?: number
+  filrepScoreStorageDeals?: number
+  filrepScoreCommittedSectorsProofs?: number
+  filrepDealsTotal?: number
+  filrepDealsNoPenalties?: number
+  filrepDealsDataStored?: number
   annotationState?: string
   annotationExtra?: string
   stored?: boolean
@@ -91,6 +98,13 @@ const schema = {
   codefiPriceValue: 'float',
   codefiPriceUsd: 'float',
   codefiScore: 'float',
+  filrepScore: 'float',
+  filrepScoreUptime: 'float',
+  filrepScoreStorageDeals: 'float',
+  filrepScoreCommittedSectorsProofs: 'float',
+  filrepDealsTotal: 'integer', 
+  filrepDealsNoPenalties: 'integer',
+  filrepDealsDataStored: 'float',
   annotationState: 'string',
   annotationExtra: 'string',
   stored: 'boolean',
@@ -129,10 +143,25 @@ const getData = async (): Promise<MinerRecord[]> => {
     console.log('Error retrieving asks:', e)
   }
 
+  let filrep = []
+  try {
+    console.log('Loading filrep')
+    const filrepUrl = 'https://api.filrep.io/api/v1/miners'
+    const filrepResp = await fetch(filrepUrl)
+    const result = await filrepResp.json()
+    if (result.miners) {
+      filrep = result.miners
+    }
+    console.log('Loaded filrep')
+  } catch (e) {
+    console.log('Error retrieving filrep:', e)
+  }
+
   const miners = new Set([
     ...Object.keys(annotations),
     ...retrievals,
-    ...asks.map(({ miner: { address } }) => address)
+    ...asks.map(({ miner: { address } }) => address),
+    ...filrep.map(({ address }) => address)
   ])
   const sortedMiners = [...miners].sort((a, b) => {
     return Number(a.slice(1)) - Number(b.slice(1))
@@ -144,6 +173,12 @@ const getData = async (): Promise<MinerRecord[]> => {
       miner: { address }
     } = ask
     askIndex[address] = ask
+  }
+
+  const filrepIndex = {}
+  for (const filrepMiner of filrep) {
+    const { address } = filrepMiner
+    filrepIndex[address] = filrepMiner
   }
   const data = sortedMiners.map(minerAddress => {
     const ask = askIndex[minerAddress] || {
@@ -163,6 +198,24 @@ const getData = async (): Promise<MinerRecord[]> => {
       minPieceSize: { raw: codefiMinPieceSize },
       maxPieceSize: { raw: codefiMaxPieceSize }
     } = ask
+    const filrepMiner = filrepIndex[minerAddress] || {
+      scores: {},
+      storageDeals: {}
+    }
+    const {
+      qualityAdjPower: filrepQualityAdjPower,
+      scores: {
+        total: filrepScore,
+        uptime: filrepScoreUptime,
+        storageDeals: filrepScoreStorageDeals,
+        committedSectorsProofs: filrepScoreCommittedSectorsProofs
+      },
+      storageDeals: {
+        total: filrepDealsTotal,
+        noPenalties: filrepDealsNoPenalties,
+        dataStored: filrepDealsDataStored
+      }
+    } = filrepMiner
     const annotation = annotations[minerAddress]
     const match = annotation && annotation.match(/^([^,]*), (.*)/)
     const annotationState = match ? match[1] : ''
@@ -177,6 +230,13 @@ const getData = async (): Promise<MinerRecord[]> => {
       codefiPriceValue,
       codefiPriceUsd,
       codefiScore,
+      filrepScore,
+      filrepScoreUptime,
+      filrepScoreStorageDeals,
+      filrepScoreCommittedSectorsProofs,
+      filrepDealsTotal,
+      filrepDealsNoPenalties,
+      filrepDealsDataStored,
       annotationState,
       annotationExtra,
       stored:
@@ -189,7 +249,8 @@ const getData = async (): Promise<MinerRecord[]> => {
       codefiMinPieceSize,
       codefiMaxPieceSize,
       codefiAskId,
-      qualityAdjPower: 0.001
+      qualityAdjPower:
+        filrepQualityAdjPower !== undefined ? filrepQualityAdjPower : 0.001
     }
   })
   return data
@@ -205,10 +266,13 @@ const config: PerspectiveViewerOptions = {
     'verifiedPrice',
     'qualityAdjPower',
     'balance',
-    'faultySectors',
-    'liveSectors',
     // 'codefiPriceRaw',
-    'codefiScore',
+    'filrepScore',
+    'filrepDealsTotal',
+    'filrepDealsNoPenalties',
+    'filrepDealsDataStored',
+    'liveSectors',
+    'faultySectors',
     'annotationState',
     'stored',
     'retrieved',
@@ -219,7 +283,9 @@ const config: PerspectiveViewerOptions = {
   filters: [
     ['retrieved', '==', 'true'],
     ['stored', '==', 'true'],
-    ['qualityAdjPower', '>', 0 as any]
+    ['qualityAdjPower', '>', 0 as any],
+    ['filrepDealsTotal', '>', 50],
+    ['filrepScore', '>', 90]
   ],
   sort: [
     ['price', 'asc'],
@@ -281,9 +347,12 @@ const App = (): React.ReactElement => {
       const provider = new BrowserProvider(endpointUrl)
       const client = new LotusRPC(provider, { schema: mainnet.fullNode })
 
-      const fallbackEndpointUrl = 'wss://lotus.jimpick.com/spacerace_api/0/node/rpc/v0'
+      const fallbackEndpointUrl =
+        'wss://lotus.jimpick.com/spacerace_api/0/node/rpc/v0'
       const fallbackProvider = new BrowserProvider(fallbackEndpointUrl)
-      const fallbackClient = new LotusRPC(fallbackProvider, { schema: mainnet.fullNode })
+      const fallbackClient = new LotusRPC(fallbackProvider, {
+        schema: mainnet.fullNode
+      })
 
       const oldestCacheTime = subMinutes(new Date(), cacheMinutes)
       for (const { miner } of data) {
@@ -358,7 +427,10 @@ const App = (): React.ReactElement => {
             // FIXME: Lotus JS Client should catch 404 errors better
             if (e.name === 'SyntaxError') {
               console.info('Using fallback stateMinerSectorCount')
-              sectorCount = await fallbackClient.stateMinerSectorCount(miner, [])
+              sectorCount = await fallbackClient.stateMinerSectorCount(
+                miner,
+                []
+              )
             } else {
               console.error('stateMinerSectorCount error', e)
             }
@@ -634,8 +706,7 @@ const App = (): React.ReactElement => {
   // You can also the use the stringified config values as attributes
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '95vh' }}>
-      <span style={{ fontWeight: 'bold' }}>128MiB, Unverified</span> {' '}
-      {selected}
+      <span style={{ fontWeight: 'bold' }}>128MiB, Unverified</span> {selected}
       <div
         style={{
           position: 'absolute',
