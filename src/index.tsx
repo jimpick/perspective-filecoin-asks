@@ -284,8 +284,8 @@ const config: PerspectiveViewerOptions = {
     ['retrieved', '==', 'true'],
     ['stored', '==', 'true'],
     ['qualityAdjPower', '>', 0 as any],
-    ['filrepDealsTotal', '>', 50],
-    ['filrepScore', '>', 90]
+    ['filrepDealsTotal', '>', 10],
+    ['filrepScore', '>', 70]
   ],
   sort: [
     ['price', 'asc'],
@@ -699,6 +699,13 @@ const App = (): React.ReactElement => {
           style={{ marginLeft: '0.5rem' }}
         >
           Filstats.io
+        </a>
+        <a
+          href='https://filrep.io/'
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Filrep.io
         </a>
       </div>
     )
