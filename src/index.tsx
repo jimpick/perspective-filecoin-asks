@@ -182,8 +182,8 @@ const getData = async (): Promise<MinerRecord[]> => {
     ...retrievals,
     // ...asks.map(({ miner: { address } }) => address),
     // ...filrep.map(({ address }) => address)
-  ])
-  const sortedMiners = [...miners].sort((a, b) => {
+  ]) as Set<string>
+  const sortedMiners = [...miners].sort((a: string, b: string) => {
     return Number(a.slice(1)) - Number(b.slice(1))
   })
 
