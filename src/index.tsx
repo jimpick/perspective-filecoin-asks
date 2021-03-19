@@ -53,6 +53,11 @@ interface MinerRecord {
   filrepDealsTotal?: number
   filrepDealsNoPenalties?: number
   filrepDealsDataStored?: number
+  textileLocation?: string
+  textileDealsTotal?: number
+  textileDealsFailures?: number
+  textileRetrievalsTotal?: number
+  textileRetrievalsFailures?: number
   annotationState?: string
   annotationExtra?: string
   stored?: boolean
@@ -72,10 +77,10 @@ interface MinerRecord {
 
 interface AskCache {
   askTime: Date
-  price: number
-  verifiedPrice: number
-  minPieceSize: number
-  maxPieceSize: number
+  price?: number
+  verifiedPrice?: number
+  minPieceSize?: number
+  maxPieceSize?: number
 }
 
 interface PowerCache {
@@ -86,6 +91,16 @@ interface PowerCache {
   activeSectors: number
   faultySectors: number
   liveSectors: number
+}
+
+interface TextileCache {
+  cacheTime: Date
+  textile404?: boolean
+  textileLocation?: string
+  textileDealsTotal?: number
+  textileDealsFailures?: number
+  textileRetrievalsTotal?: number
+  textileRetrievalsFailures?: number
 }
 
 const schema = {
@@ -102,9 +117,14 @@ const schema = {
   filrepScoreUptime: 'float',
   filrepScoreStorageDeals: 'float',
   filrepScoreCommittedSectorsProofs: 'float',
-  filrepDealsTotal: 'integer', 
+  filrepDealsTotal: 'integer',
   filrepDealsNoPenalties: 'integer',
   filrepDealsDataStored: 'float',
+  textileLocation: 'string',
+  textileDealsTotal: 'integer',
+  textileDealsFailures: 'integer',
+  textileRetrievalsTotal: 'integer',
+  textileRetrievalsFailures: 'integer',
   annotationState: 'string',
   annotationExtra: 'string',
   stored: 'boolean',
@@ -160,8 +180,8 @@ const getData = async (): Promise<MinerRecord[]> => {
   const miners = new Set([
     ...Object.keys(annotations),
     ...retrievals,
-    ...asks.map(({ miner: { address } }) => address),
-    ...filrep.map(({ address }) => address)
+    // ...asks.map(({ miner: { address } }) => address),
+    // ...filrep.map(({ address }) => address)
   ])
   const sortedMiners = [...miners].sort((a, b) => {
     return Number(a.slice(1)) - Number(b.slice(1))
@@ -271,6 +291,11 @@ const config: PerspectiveViewerOptions = {
     'filrepDealsTotal',
     'filrepDealsNoPenalties',
     'filrepDealsDataStored',
+    'textileLocation',
+    'textileDealsTotal',
+    'textileDealsFailures',
+    'textileRetrievalsTotal',
+    'textileRetrievalsFailures',
     'liveSectors',
     'faultySectors',
     'annotationState',
@@ -383,7 +408,24 @@ const App = (): React.ReactElement => {
             } as any)
           }
         }
+        const textile: TextileCache = await getIdb(`textile/${miner}`)
+        if (textile) {
+          if (textile.cacheTime > oldestCacheTime) {
+            if (!textile.textile404) {
+              table.update({
+                miner: [miner],
+                textileLocation: [textile.textileLocation],
+                textileDealsTotal: [textile.textileDealsTotal],
+                textileDealsFailures: [textile.textileDealsFailures],
+                textileRetrievalsTotal: [textile.textileRetrievalsTotal],
+                textileRetrievalsFailures: [textile.textileRetrievalsFailures]
+              } as any)
+            }
+          }
+        }
       }
+
+      // Update Power
 
       const powerQueue = new PQueue({ concurrency: 5 })
       for (const { miner } of data) {
@@ -462,148 +504,227 @@ const App = (): React.ReactElement => {
         })
       }
 
-      const askQueue = new PQueue({ concurrency: 5 })
-      const inflight = new Set()
+      // Update asks
 
-      while (true) {
-        if (askQueue.size > 0) {
-          // Busy, sleep
-          // console.log('Jobs waiting, sleeping', askQueue.size)
-          await delay(1000)
-          continue
-        }
-        const viewNull = table.view({
-          columns: ['miner', 'askTime'],
-          filter: [['askTime', 'is null', '']],
-          sort: [
-            ['stored', 'desc'],
-            ['retrieved', 'desc'],
-            ['minerNum', 'asc']
-          ]
-        })
-        const dataAskNullCandidates = (await viewNull.to_json()) as MinerRecord[]
-        // console.log('dataAskNullCandidates', dataAskNullCandidates.length)
-        const viewStale = table.view({
-          columns: ['miner', 'askTime'],
-          filter: [
-            ['askTime', '<', subMinutes(new Date(), cacheMinutes).toISOString()]
-          ],
-          sort: [
-            ['stored', 'desc'],
-            ['retrieved', 'desc'],
-            ['minerNum', 'asc']
-          ]
-        })
-        const dataAskStaleCandidates = (await viewStale.to_json()) as MinerRecord[]
-        // console.log('dataAskStaleCandidates', dataAskStaleCandidates.length)
-        console.log(
-          `Candidates: ${dataAskNullCandidates.length} null, ` +
-            `${dataAskStaleCandidates.length} stale`
-        )
-        const dataAskCandidates = [
-          ...dataAskNullCandidates,
-          ...dataAskStaleCandidates
-        ]
-        if (dataAskCandidates.length > 0) {
-          const maxCandidates = 5 // Limit number of new tasks
-          if (dataAskCandidates.length > maxCandidates) {
-            dataAskCandidates.length = maxCandidates
+      async function runAsks () {
+        const askQueue = new PQueue({ concurrency: 5 })
+        const inflight = new Set()
+
+        while (true) {
+          if (askQueue.size > 0) {
+            // Busy, sleep
+            // console.log('Jobs waiting, sleeping', askQueue.size)
+            await delay(1000)
+            continue
           }
-          askQueue.add(async () => {
-            for (const { miner } of dataAskCandidates) {
-              if (!inflight.has(miner)) {
-                inflight.add(miner)
-                // console.log('inflight', inflight)
-                for (let i in data) {
-                  const record = data[i]
-                  if (record.miner === miner) {
-                    // console.log('updating', miner)
-                    let price: number = 999999999999999
-                    let verifiedPrice: number = 999999999999999
-                    let minPieceSize: number = null
-                    let maxPieceSize: number = null
-                    let state = { done: false }
-                    try {
-                      const timeoutFunc = async () => {
-                        state.done = false
-                        await delay(10 * 1000)
-                        if (!state.done) {
-                          throw new Error('timeout')
-                        }
-                      }
-                      let minerInfo
+          const viewNull = table.view({
+            columns: ['miner', 'askTime'],
+            filter: [['askTime', 'is null', '']],
+            sort: [
+              ['stored', 'desc'],
+              ['retrieved', 'desc'],
+              ['minerNum', 'asc']
+            ]
+          })
+          const dataAskNullCandidates = (await viewNull.to_json()) as MinerRecord[]
+          // console.log('dataAskNullCandidates', dataAskNullCandidates.length)
+          const viewStale = table.view({
+            columns: ['miner', 'askTime'],
+            filter: [
+              [
+                'askTime',
+                '<',
+                subMinutes(new Date(), cacheMinutes).toISOString()
+              ]
+            ],
+            sort: [
+              ['stored', 'desc'],
+              ['retrieved', 'desc'],
+              ['minerNum', 'asc']
+            ]
+          })
+          const dataAskStaleCandidates = (await viewStale.to_json()) as MinerRecord[]
+          // console.log('dataAskStaleCandidates', dataAskStaleCandidates.length)
+          console.log(
+            `Candidates: ${dataAskNullCandidates.length} null, ` +
+              `${dataAskStaleCandidates.length} stale`
+          )
+          const dataAskCandidates = [
+            ...dataAskNullCandidates,
+            ...dataAskStaleCandidates
+          ]
+          if (dataAskCandidates.length > 0) {
+            const maxCandidates = 5 // Limit number of new tasks
+            if (dataAskCandidates.length > maxCandidates) {
+              dataAskCandidates.length = maxCandidates
+            }
+            askQueue.add(async () => {
+              for (const { miner } of dataAskCandidates) {
+                if (!inflight.has(miner)) {
+                  inflight.add(miner)
+                  // console.log('inflight', inflight)
+                  for (let i in data) {
+                    const record = data[i]
+                    if (record.miner === miner) {
+                      // console.log('updating', miner)
+                      let price: number = 999999999999999
+                      let verifiedPrice: number = 999999999999999
+                      let minPieceSize: number = null
+                      let maxPieceSize: number = null
+                      let state = { done: false }
+                      const askTime = new Date()
                       try {
-                        minerInfo = (await Promise.race([
-                          client.stateMinerInfo(miner, []),
-                          timeoutFunc()
-                        ])) as MinerInfo
-                      } catch (e) {
-                        // FIXME: Lotus JS Client should catch 404 errors better
-                        if (e.name === 'SyntaxError') {
-                          console.info('Using fallback minerInfo')
+                        const timeoutFunc = async () => {
+                          state.done = false
+                          await delay(10 * 1000)
+                          if (!state.done) {
+                            throw new Error('timeout')
+                          }
+                        }
+                        let minerInfo
+                        try {
                           minerInfo = (await Promise.race([
-                            fallbackClient.stateMinerInfo(miner, []),
+                            client.stateMinerInfo(miner, []),
                             timeoutFunc()
                           ])) as MinerInfo
-                        } else {
-                          console.error('minerInfo error', e)
+                        } catch (e) {
+                          // FIXME: Lotus JS Client should catch 404 errors better
+                          if (e.name === 'SyntaxError') {
+                            console.info('Using fallback minerInfo')
+                            minerInfo = (await Promise.race([
+                              fallbackClient.stateMinerInfo(miner, []),
+                              timeoutFunc()
+                            ])) as MinerInfo
+                          } else {
+                            console.error('minerInfo error', e)
+                          }
                         }
-                      }
-                      const { PeerId: peerId } = minerInfo
-                      let ask
-                      try {
-                        ask = (await Promise.race([
-                          client.clientQueryAsk(peerId, miner),
-                          timeoutFunc()
-                        ])) as StorageAsk
-                      } catch (e) {
-                        // FIXME: Lotus JS Client should catch 404 errors better
-                        if (e.name === 'SyntaxError') {
-                          console.info('Using fallback clientQueryAsk')
+                        const { PeerId: peerId } = minerInfo
+                        let ask
+                        try {
                           ask = (await Promise.race([
-                            fallbackClient.clientQueryAsk(peerId, miner),
+                            client.clientQueryAsk(peerId, miner),
                             timeoutFunc()
                           ])) as StorageAsk
-                        } else {
-                          console.error('clientQueryAsk error', e)
+                        } catch (e) {
+                          // FIXME: Lotus JS Client should catch 404 errors better
+                          if (e.name === 'SyntaxError') {
+                            console.info('Using fallback clientQueryAsk')
+                            ask = (await Promise.race([
+                              fallbackClient.clientQueryAsk(peerId, miner),
+                              timeoutFunc()
+                            ])) as StorageAsk
+                          } else {
+                            console.error('clientQueryAsk error', miner, e)
+                          }
                         }
+                        // console.log('Ask:', miner, ask)
+                        price = Number(ask.Price)
+                        verifiedPrice = Number(ask.VerifiedPrice)
+                        minPieceSize = Number(ask.MinPieceSize)
+                        maxPieceSize = Number(ask.MaxPieceSize)
+                        state.done = true
+                      } catch (e) {
+                        console.error('Error during ask', miner, e)
                       }
-                      // console.log('Ask:', miner, ask)
-                      price = Number(ask.Price)
-                      verifiedPrice = Number(ask.VerifiedPrice)
-                      minPieceSize = Number(ask.MinPieceSize)
-                      maxPieceSize = Number(ask.MaxPieceSize)
-                      state.done = true
-                    } catch (e) {
-                      console.error('Error during ask', miner, e)
+                      table.update({
+                        miner: [miner],
+                        askTime: [askTime],
+                        price: [price],
+                        verifiedPrice: [verifiedPrice],
+                        minPieceSize: [minPieceSize],
+                        maxPieceSize: [maxPieceSize]
+                      } as any)
+                      const askCache: AskCache = {
+                        askTime,
+                        price,
+                        verifiedPrice,
+                        minPieceSize,
+                        maxPieceSize
+                      }
+                      setIdb(`ask/${miner}`, askCache)
+                      inflight.delete(miner)
                     }
-                    const askTime = new Date()
-                    table.update({
-                      miner: [miner],
-                      askTime: [askTime],
-                      price: [price],
-                      verifiedPrice: [verifiedPrice],
-                      minPieceSize: [minPieceSize],
-                      maxPieceSize: [maxPieceSize]
-                    } as any)
-                    const askCache: AskCache = {
-                      askTime,
-                      price,
-                      verifiedPrice,
-                      minPieceSize,
-                      maxPieceSize
-                    }
-                    setIdb(`ask/${miner}`, askCache)
-                    inflight.delete(miner)
+                  }
+                }
+                continue
+              }
+            })
+          }
+          await delay(500)
+        }
+      }
+      runAsks()
+
+      async function runTextile () {
+        const textileQueue = new PQueue({ concurrency: 5 })
+        for (const { miner } of data) {
+          // console.log('Jim textile', miner)
+          const textileCache: TextileCache = await getIdb(`textile/${miner}`)
+          if (textileCache) {
+            // console.log('Jim textile cached', textileCache)
+            if (textileCache.cacheTime > oldestCacheTime) {
+              continue
+            }
+          }
+          textileQueue.add(async () => {
+            let textileMinerIndex
+            try {
+              const url =
+                'https://minerindex.hub.textile.io/v1/index/miner/' + miner
+              const resp = await fetch(url)
+              if (resp.status === 404) {
+                const textileCache: TextileCache = {
+                  cacheTime: new Date(),
+                  textile404: true
+                }
+                setIdb(`textile/${miner}`, textileCache)
+              }
+              if (resp.status !== 200) {
+                await delay(500)
+                return
+              }
+              textileMinerIndex = await resp.json()
+            } catch (e) {
+              console.error('textile miner index error', e)
+            }
+            const {
+              info: {
+                metadata: { location: textileLocation },
+                textile: {
+                  dealsSummary: {
+                    total: textileDealsTotal,
+                    failures: textileDealsFailures
+                  },
+                  retrievalsSummary: {
+                    total: textileRetrievalsTotal,
+                    failures: textileRetrievalsFailures
                   }
                 }
               }
-              continue
+            } = textileMinerIndex
+            table.update({
+              miner: [miner],
+              textileLocation: [textileLocation],
+              textileDealsTotal: [textileDealsTotal],
+              textileDealsFailures: [textileDealsFailures],
+              textileRetrievalsTotal: [textileRetrievalsTotal],
+              textileRetrievalsFailures: [textileRetrievalsFailures]
+            } as any)
+            const textileCache: TextileCache = {
+              cacheTime: new Date(),
+              textileLocation,
+              textileDealsTotal: Number(textileDealsTotal),
+              textileDealsFailures: Number(textileDealsFailures),
+              textileRetrievalsTotal: Number(textileRetrievalsTotal),
+              textileRetrievalsFailures: Number(textileRetrievalsFailures)
             }
+            setIdb(`textile/${miner}`, textileCache)
+            await delay(500)
           })
         }
-        await delay(500)
       }
+      runTextile()
     }
     run()
   }, [])
@@ -678,6 +799,13 @@ const App = (): React.ReactElement => {
           style={{ marginLeft: '0.5rem' }}
         >
           CID Checker
+        </a>
+        <a
+          href={`https://minerindex.hub.textile.io/v1/index/miner/${selectedMiner}`}
+          target='_blank'
+          style={{ marginLeft: '0.5rem' }}
+        >
+          Textile (JSON)
         </a>
         <a
           href={`https://www.storage.codefi.network/details/${codefiAskId}`}
